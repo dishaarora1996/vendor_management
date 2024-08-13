@@ -4,7 +4,7 @@ from rest_framework.views import APIView
 from .models import PurchaseOrder, Vendor
 from .serializers import PurchaseOrderSerializer, VendorSerializer
 from rest_framework.exceptions import APIException, ValidationError
-
+from vendor import models
 # Create your views here.
 
 
@@ -117,3 +117,25 @@ class VendorAPIView(APIView):
         else:
             return Response({"msg": "Not Found", 'request_status': 0}, status=status.HTTP_404_NOT_FOUND)
 
+
+
+@api_view(['POST'])
+def registration_view(request):
+
+    if request.method == 'POST':
+        serializer = RegistrationSerializer(data=request.data)
+        data = {}
+        if serializer.is_valid():
+            account = serializer.save()
+            data['username'] = account.username
+            data['email'] = account.email
+            token = Token.objects.get(user=account).key
+            data['token'] = token
+            data['msg'] = "Registration successful"
+            data['request_status'] = 1
+
+        else:
+            data['msg'] = serializer.errors
+            data['request_status'] = 0
+
+        return Response(data)
