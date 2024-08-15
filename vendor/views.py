@@ -2,16 +2,20 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from .models import PurchaseOrder, Vendor
-from .serializers import PurchaseOrderSerializer, VendorSerializer
+from .serializers import PurchaseOrderSerializer, VendorSerializer, RegisterSerializer
 from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.authtoken.models import Token
 from vendor import models
+from django.contrib.auth import authenticate
+from rest_framework.authentication import TokenAuthentication
+from rest_framework.permissions import IsAuthenticated
 # Create your views here.
 
 
 
 class PurchaseOrderAPIView(APIView):
-    # authentication_classes = [TokenAuthentication]
-    # permission_classes = [IsAuthenticated]
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, po_id=None, format=None):
         if po_id:
@@ -42,10 +46,13 @@ class PurchaseOrderAPIView(APIView):
     def put(self, request, po_id, format=None):
         purchase_order = PurchaseOrder.cmobjects.filter(pk=po_id).first()
         if purchase_order:
-            serializer = PurchaseOrderSerializer(purchase_order, data=request.data)
+            serializer = PurchaseOrderSerializer(purchase_order, data=request.data, context={'request': request})
             if serializer.is_valid():
                 try:
-                    serializer.save()
+                    purchase_order = serializer.save()
+                    # purchase_order.updated_by = request.user
+                    # purchase_order.save()
+
                 except Exception as e:
                     raise APIException({'msg': str(e), 'request_status': 0})
                 return Response({"results": serializer.data, 'request_status': 1, "msg": "Successfully updated"}, status=status.HTTP_200_OK)
@@ -55,20 +62,22 @@ class PurchaseOrderAPIView(APIView):
 
 
     def delete(self, request, po_id, format=None):
-        purchase_order = PurchaseOrder.cmobjects.filter(pk=po_id).first()
-        if purchase_order:
-            purchase_order.is_deleted = True
-            purchase_order.updated_by = request.user
-            purchase_order.save()
-            return Response({"results": purchase_order.values(), 'request_status': 1, "msg": "Successfully deleted"}, status=status.HTTP_204_NO_CONTENT)
+        purchase_order = PurchaseOrder.cmobjects.filter(pk=po_id)
+        purchase_order_obj = purchase_order.first()
+        purchase_order_value = purchase_order.values().first()
+        if purchase_order_obj:
+            purchase_order_obj.is_deleted = True
+            purchase_order_obj.updated_by = request.user
+            purchase_order_obj.save()
+            return Response({"results": purchase_order_value, 'request_status': 1, "msg": "Successfully deleted"}, status=status.HTTP_204_NO_CONTENT)
         else:
             return Response({"msg": "Not Found", 'request_status': 0}, status=status.HTTP_404_NOT_FOUND)
 
 
 
 class VendorAPIView(APIView):
-    # authentication_classes = [TokenAuthentication]
-    # permission_classes = [IsAuthenticated]
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, vendor_id=None, format=None):
         if vendor_id:
@@ -96,7 +105,7 @@ class VendorAPIView(APIView):
     def put(self, request, vendor_id, format=None):
         vendor = Vendor.cmobjects.filter(pk=vendor_id).first()
         if vendor:
-            serializer = VendorSerializer(vendor, data=request.data)
+            serializer = VendorSerializer(vendor, data=request.data, context={'request': request})
             if serializer.is_valid():
                 try:
                     serializer.save()
@@ -108,34 +117,56 @@ class VendorAPIView(APIView):
             return Response({"msg": "Not Found", 'request_status': 0}, status=status.HTTP_404_NOT_FOUND)
 
     def delete(self, request, vendor_id, format=None):
-        vendor = Vendor.cmobjects.filter(pk=vendor_id).first()
-        if vendor:
-            vendor.is_deleted = True
-            vendor.updated_by = request.user
-            vendor.save()
-            return Response({"results": vendor.values(), 'request_status': 1, "msg": "Successfully deleted"}, status=status.HTTP_204_NO_CONTENT)
+        vendor = Vendor.cmobjects.filter(pk=vendor_id)
+        vendor_obj = vendor.first()
+        vendor_value = vendor.values().first()
+        if vendor_obj:
+            vendor_obj.is_deleted = True
+            vendor_obj.updated_by = request.user
+            vendor_obj.save()
+            return Response({"results": vendor_value, 'request_status': 1, "msg": "Successfully deleted"}, status=status.HTTP_200_OK)
         else:
             return Response({"msg": "Not Found", 'request_status': 0}, status=status.HTTP_404_NOT_FOUND)
 
 
+class RegisterAPIView(APIView):
 
-@api_view(['POST'])
-def registration_view(request):
-
-    if request.method == 'POST':
-        serializer = RegistrationSerializer(data=request.data)
-        data = {}
+    def post(self, request, *args, **kwargs):
+        serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
-            account = serializer.save()
-            data['username'] = account.username
-            data['email'] = account.email
-            token = Token.objects.get(user=account).key
-            data['token'] = token
-            data['msg'] = "Registration successful"
-            data['request_status'] = 1
+            try:
+                user = serializer.save()
+            except Exception as e:
+                raise APIException({'msg': str(e), 'request_status': 0})
+            token, created = Token.objects.get_or_create(user=user)
+            data = {
+                    "username": user.username,
+                    "email": user.email,
+                    "token": token.key,
+                    'request_status': 1,
+                    "msg": "Successfully registered"
 
-        else:
-            data['msg'] = serializer.errors
-            data['request_status'] = 0
+                }
+            return Response(data, status=status.HTTP_201_CREATED)
+        raise APIException({'msg': serializer.errors, 'request_status': 0})
 
-        return Response(data)
+class LoginAPIView(APIView):
+    def post(self, request, *args, **kwargs):
+        username = request.data.get('username')
+        password = request.data.get('password')
+
+        # Authenticate the user
+        user = authenticate(username=username, password=password)
+        if user is None:
+            raise APIException({'msg': 'Invalid username or password', 'request_status': 0})
+
+        # Create or get the token for the user
+        token, created = Token.objects.get_or_create(user=user)
+        data = {
+            'token': token.key,
+            'username': user.username,
+            'email': user.email,
+            'request_status': 1,
+            "msg": "Successfully login"
+        }
+        return Response(data, status=status.HTTP_200_OK)

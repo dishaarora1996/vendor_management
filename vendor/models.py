@@ -44,7 +44,7 @@ class Vendor(BaseAbstractStructure):
     fulfillment_rate = models.FloatField(default=0.0, blank=True, null=True)
 
     def __str__(self):
-        return self.name
+        return f"{self.name} {self.id}"
 
 
 class PurchaseOrder(BaseAbstractStructure):
@@ -57,13 +57,16 @@ class PurchaseOrder(BaseAbstractStructure):
     po_number = models.CharField(max_length=100, unique=True)
     vendor = models.ForeignKey('Vendor', on_delete=models.CASCADE)
     order_date = models.DateTimeField()
-    delivery_date = models.DateTimeField()
+    delivery_date = models.DateTimeField()  # Expected delivery date
+    actual_delivery_date = models.DateTimeField(null=True, blank=True)  # Actual delivery date
     items = models.JSONField()
     quantity = models.IntegerField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     quality_rating = models.FloatField(null=True, blank=True)
     issue_date = models.DateTimeField()
     acknowledgment_date = models.DateTimeField(null=True, blank=True)
+
+
 
     def __str__(self):
         return self.po_number
